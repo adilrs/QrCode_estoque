@@ -1,0 +1,7 @@
+flask==3.0.3
+fdb==2.0.4
+flask-jwt-extended==4.6.0
+flask-cors==4.0.1
+python-dotenv==1.0.1
+pywin32==306
+waitress==3.0.0

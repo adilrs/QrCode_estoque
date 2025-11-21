@@ -1,0 +1,298 @@
+{
+  "project": {
+    "name": "Sistema de Transferência de Material",
+    "version": "1.0.0",
+    "description": "Sistema para transferência e controle de materiais via QR Code",
+    "governance_version": "1.0.0"
+  },
+  "mandatory_standards": {
+    "code_quality": {
+      "python": {
+        "encoding": "utf-8",
+        "line_length": 120,
+        "indentation": 4,
+        "docstring_style": "google",
+        "type_hints": "required_for_functions",
+        "imports": {
+          "order": ["standard", "third_party", "local"],
+          "group_separation": true
+        }
+      },
+      "javascript": {
+        "style": "eslint-recommended",
+        "semicolons": "required",
+        "quotes": "single",
+        "indentation": 2
+      },
+      "sql": {
+        "keywords": "uppercase",
+        "table_names": "uppercase",
+        "indentation": 2
+      }
+    },
+    "security": {
+      "secrets": {
+        "no_hardcoded_passwords": true,
+        "use_env_variables": true,
+        "no_api_keys_in_code": true
+      },
+      "database": {
+        "use_parameterized_queries": true,
+        "no_dynamic_sql": false,
+        "validate_inputs": true
+      },
+      "ssl": {
+        "required_for_production": true,
+        "certificate_validation": true
+      }
+    },
+    "testing": {
+      "unit_tests": {
+        "required": true,
+        "coverage_minimum": 70,
+        "framework": "pytest"
+      },
+      "integration_tests": {
+        "required_for_api": true,
+        "database_rollback": true
+      },
+      "homologation": {
+        "mandatory_before_production": true,
+        "test_scenarios": ["happy_path", "error_cases", "edge_cases"]
+      }
+    },
+    "documentation": {
+      "code_comments": {
+        "complex_logic": "required",
+        "public_functions": "required",
+        "language": "portuguese"
+      },
+      "api_documentation": {
+        "endpoints": "required",
+        "parameters": "required",
+        "examples": "required"
+      },
+      "deployment_guide": {
+        "required": true,
+        "update_after_changes": true
+      }
+    },
+    "version_control": {
+      "commit_messages": {
+        "format": "conventional_commits",
+        "language": "portuguese",
+        "examples": [
+          "feat: adicionar endpoint de consulta de material",
+          "fix: corrigir erro de conexão com banco",
+          "docs: atualizar documentação da API",
+          "test: adicionar testes para stored procedures"
+        ]
+      },
+      "branching": {
+        "main_branch": "main",
+        "development_branch": "develop",
+        "feature_prefix": "feature/",
+        "hotfix_prefix": "hotfix/"
+      },
+      "pull_requests": {
+        "required": true,
+        "minimum_reviewers": 1,
+        "tests_must_pass": true
+      }
+    },
+    "deployment": {
+      "environments": {
+        "development": {
+          "auto_deploy": true,
+          "tests_required": false
+        },
+        "homologation": {
+          "manual_deploy": true,
+          "tests_required": true,
+          "approval_required": false
+        },
+        "production": {
+          "manual_deploy": true,
+          "tests_required": true,
+          "approval_required": true,
+          "backup_required": true
+        }
+      },
+      "rollback": {
+        "strategy": "backup_restore",
+        "max_time": "30_minutes"
+      }
+    },
+    "development_governance": {
+      "mandatory_workflow": {
+        "homologation_first": {
+          "required": true,
+          "description": "Toda implementação deve ser feita primeiro no ambiente de homologação",
+          "validation_steps": [
+            "Desenvolver em ambiente de homologação",
+            "Executar testes completos",
+            "Validar com dados reais",
+            "Obter aprovação antes de migrar para produção"
+          ],
+          "homolog_path": "homologacao/",
+          "test_script": "test_homolog_service.py",
+          "benefits": [
+            "Reduz riscos em produção",
+            "Permite testes com dados reais",
+            "Facilita rollback se necessário",
+            "Garante qualidade antes do deploy"
+          ]
+        }
+      }
+    }
+  },
+  "file_templates": {
+    "python_module": {
+      "header": [
+        "#!/usr/bin/env python3",
+        "# -*- coding: utf-8 -*-",
+        "\"\"\"",
+        "[DESCRIÇÃO DO MÓDULO]",
+        "\"\"\"",
+        "",
+        "import os",
+        "import sys",
+        "from typing import Optional, Dict, Any",
+        ""
+      ]
+    },
+    "sql_procedure": {
+      "header": [
+        "-- ==============================================",
+        "-- Procedure: [NOME_PROCEDURE]",
+        "-- Descrição: [DESCRIÇÃO]",
+        "-- Autor: [NOME]",
+        "-- Data: [DATA]",
+        "-- Versão: 1.0",
+        "-- =============================================="
+      ]
+    }
+  },
+  "validation_rules": {
+    "pre_commit": [
+      {
+        "rule": "no_secrets_in_code",
+        "description": "Verificar se não há senhas ou chaves hardcoded",
+        "patterns": ["password\\s*=\\s*['\"].*['\"]"]
+      },
+      {
+        "rule": "python_encoding",
+        "description": "Arquivos Python devem ter encoding UTF-8",
+        "files": "*.py",
+        "required_header": "# -*- coding: utf-8 -*-"
+      },
+      {
+        "rule": "no_debug_prints",
+        "description": "Não permitir prints de debug em produção",
+        "patterns": ["print\\(.*debug.*\\)", "console\\.log\\(.*debug.*\\)"]
+      }
+    ],
+    "pre_push": [
+      {
+        "rule": "tests_must_pass",
+        "description": "Todos os testes devem passar antes do push",
+        "command": "python -m pytest"
+      },
+      {
+        "rule": "no_todo_comments",
+        "description": "Não permitir comentários TODO em produção",
+        "patterns": ["# TODO", "// TODO"]
+      }
+    ]
+  },
+  "code_review_checklist": [
+    {
+      "category": "Funcionalidade",
+      "items": [
+        "O código implementa corretamente os requisitos?",
+        "Os casos de erro estão tratados adequadamente?",
+        "A lógica de negócio está correta?"
+      ]
+    },
+    {
+      "category": "Qualidade",
+      "items": [
+        "O código está legível e bem estruturado?",
+        "As funções têm responsabilidade única?",
+        "Os nomes de variáveis e funções são descritivos?"
+      ]
+    },
+    {
+      "category": "Segurança",
+      "items": [
+        "Não há senhas ou chaves hardcoded?",
+        "As entradas são validadas adequadamente?",
+        "Queries SQL usam parâmetros?"
+      ]
+    },
+    {
+      "category": "Performance",
+      "items": [
+        "O código é eficiente?",
+        "Não há loops desnecessários?",
+        "Conexões de banco são fechadas adequadamente?"
+      ]
+    },
+    {
+      "category": "Testes",
+      "items": [
+        "Existem testes para a nova funcionalidade?",
+        "Os testes cobrem casos de erro?",
+        "Todos os testes estão passando?"
+      ]
+    }
+  ],
+  "tools": {
+    "linting": {
+      "python": ["flake8", "black", "isort"],
+      "javascript": ["eslint", "prettier"]
+    },
+    "testing": {
+      "python": ["pytest", "coverage"],
+      "javascript": ["jest"]
+    },
+    "security": [
+      "bandit",
+      "safety"
+    ]
+  },
+  "enforcement": {
+    "automated_checks": true,
+    "block_on_failure": true,
+    "notification_channels": ["email", "slack"],
+    "escalation_policy": {
+      "first_violation": "warning",
+      "repeated_violations": "block_merge",
+      "critical_violations": "immediate_block"
+    }
+  },
+  "exceptions": {
+    "emergency_hotfix": {
+      "allowed": true,
+      "requires_approval": true,
+      "post_deployment_review": "mandatory"
+    },
+    "legacy_code": {
+      "gradual_compliance": true,
+      "deadline": "2025-06-01"
+    }
+  },
+  "metrics": {
+    "track": [
+      "code_coverage",
+      "deployment_frequency",
+      "lead_time",
+      "mean_time_to_recovery",
+      "change_failure_rate"
+    ],
+    "reporting": {
+      "frequency": "weekly",
+      "dashboard": true
+    }
+  }
+}

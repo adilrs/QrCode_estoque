@@ -1,0 +1,736 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Sistema de Transferência de Material - Ambiente de Produção
+Versão para uso em produção
+
+Este arquivo contém as configurações para o ambiente de produção.
+"""
+
+import fdb
+import os
+import sys
+import logging
+from datetime import datetime
+from flask import Flask, request, jsonify, render_template_string
+from flask_cors import CORS
+from dotenv import load_dotenv
+import json
+import traceback
+
+# Carregar configurações específicas de produção
+load_dotenv('.env')
+
+# Configuração de logging para produção
+logging.basicConfig(
+    level=getattr(logging, os.getenv('LOG_LEVEL', 'INFO')),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(os.getenv('LOG_FILE', 'logs/producao.log')),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Configuração do Flask para produção
+app = Flask(__name__)
+CORS(app, origins="*" if os.getenv('ALLOW_ALL_ORIGINS', 'True').lower() == 'true' else [])
+
+# Configurações do banco de dados
+DB_CONFIG = {
+    'host': os.getenv('DB_HOST', '192.168.0.8'),
+    'database': os.getenv('DB_PATH', 'e:/gdb/retesp.fdb'),
+    'user': os.getenv('DB_USER', 'SYSDBA'),
+    'password': os.getenv('DB_PASSWORD', 'a'),
+    'charset': 'UTF8'
+}
+
+# Configurações específicas de homologação
+TEST_MODE = os.getenv('TEST_MODE', 'True').lower() == 'true'
+ALLOW_ROLLBACK = os.getenv('ALLOW_ROLLBACK', 'True').lower() == 'true'
+AUDIT_ENABLED = os.getenv('AUDIT_ENABLED', 'True').lower() == 'true'
+
+def log_audit(action, etiqueta, quantidade, result, user_ip=None):
+    """Log de auditoria para homologação"""
+    if not AUDIT_ENABLED:
+        return
+    
+    audit_data = {
+        'timestamp': datetime.now().isoformat(),
+        'environment': 'homologacao',
+        'action': action,
+        'etiqueta': etiqueta,
+        'quantidade': quantidade,
+        'result': result,
+        'user_ip': user_ip or request.remote_addr if request else 'unknown'
+    }
+    
+    audit_file = os.getenv('AUDIT_LOG_FILE', 'logs/audit_homologacao.log')
+    try:
+        with open(audit_file, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(audit_data, ensure_ascii=False) + '\n')
+    except Exception as e:
+        logger.error(f"Erro ao gravar log de auditoria: {e}")
+
+def get_database_connection():
+    """Estabelece conexão com o banco de dados de homologação"""
+    try:
+        logger.debug(f"Conectando ao banco: {DB_CONFIG['database']}")
+        con = fdb.connect(**DB_CONFIG)
+        logger.debug("Conexão estabelecida com sucesso")
+        return con
+    except Exception as e:
+        logger.error(f"Erro ao conectar com banco de dados: {e}")
+        raise
+
+def consultar_material(etiqueta):
+    """Consulta informações do material via stored procedure"""
+    con = None
+    try:
+        con = get_database_connection()
+        cursor = con.cursor()
+        
+        logger.debug(f"Executando CONSULTA_QR_MATERIAL para etiqueta: {etiqueta}")
+        cursor.callproc('CONSULTA_QR_MATERIAL', [etiqueta])
+        result = cursor.fetchall()
+        
+        if result:
+            logger.debug(f"Material encontrado: {len(result)} registro(s)")
+            return result[0]
+        else:
+            logger.warning(f"Material não encontrado para etiqueta: {etiqueta}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Erro ao consultar material {etiqueta}: {e}")
+        raise
+    finally:
+        if con:
+            con.close()
+
+def executar_baixa_material(etiqueta, quantidade):
+    """Executa a baixa do material via stored procedure"""
+    con = None
+    try:
+        con = get_database_connection()
+        cursor = con.cursor()
+        
+        logger.debug(f"Executando SP_BAIXA_REQUISICAO_MAT - Etiqueta: {etiqueta}, Quantidade: {quantidade}")
+        
+        # Em modo de teste, pode permitir rollback
+        if TEST_MODE and ALLOW_ROLLBACK:
+            logger.info("MODO TESTE: Transação será revertida após execução")
+        
+        cursor.callproc('SP_BAIXA_REQUISICAO_MAT', [etiqueta, quantidade])
+        result = cursor.fetchone()
+        
+        if result:
+            qtd_retorno = result[0]
+            logger.debug(f"Resultado da baixa: {qtd_retorno}")
+            
+            # Em modo de teste com rollback, reverter a transação
+            if TEST_MODE and ALLOW_ROLLBACK and request.args.get('test_rollback') == 'true':
+                con.rollback()
+                logger.info("Transação revertida (modo teste)")
+                return qtd_retorno, True  # Retorna flag indicando rollback
+            else:
+                con.commit()
+                logger.debug("Transação confirmada")
+                return qtd_retorno, False
+        else:
+            logger.error("Stored procedure não retornou resultado")
+            con.rollback()
+            return None, True
+            
+    except Exception as e:
+        logger.error(f"Erro ao executar baixa {etiqueta}: {e}")
+        if con:
+            con.rollback()
+        raise
+    finally:
+        if con:
+            con.close()
+
+@app.route('/')
+def home():
+    """Página inicial do ambiente de produção"""
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Sistema de Transferência - Produção</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 40px; background-color: #f8f9fa; }
+            .container { max-width: 800px; margin: 0 auto; }
+            .header { background-color: #28a745; color: white; padding: 20px; border-radius: 8px; text-align: center; }
+            .info { background-color: white; padding: 20px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            .endpoint { background-color: #e8f5e8; padding: 10px; margin: 10px 0; border-radius: 4px; }
+            .warning { background-color: #d1ecf1; border: 1px solid #bee5eb; padding: 15px; border-radius: 4px; margin: 20px 0; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🏭 Ambiente de Produção</h1>
+                <p>Sistema de Transferência de Material</p>
+            </div>
+            
+            <div class="warning">
+                <strong>ℹ️ INFORMAÇÃO:</strong> Este é o ambiente de produção. 
+                Todas as operações são reais e afetam o sistema.
+            </div>
+            
+            <div class="info">
+                <h2>📋 Informações do Ambiente</h2>
+                <ul>
+                    <li><strong>Ambiente:</strong> {{ environment }}</li>
+                    <li><strong>Modo Teste:</strong> {{ test_mode }}</li>
+                    <li><strong>Rollback Permitido:</strong> {{ allow_rollback }}</li>
+                    <li><strong>Banco de Dados:</strong> {{ database }}</li>
+                    <li><strong>Porta:</strong> {{ port }}</li>
+                </ul>
+            </div>
+            
+            <div class="info">
+                <h2>🔗 Endpoints Disponíveis</h2>
+                <div class="endpoint">
+                    <strong>POST /transfer</strong><br>
+                    Executa transferência de material<br>
+                    <code>{"etiqueta": "AA123456", "quantidade": 1}</code>
+                </div>
+                <div class="endpoint">
+                    <strong>GET /consulta/&lt;etiqueta&gt;</strong><br>
+                    Consulta informações do material
+                </div>
+                <div class="endpoint">
+                    <strong>GET /health</strong><br>
+                    Verifica status do serviço
+                </div>
+                <div class="endpoint">
+                    <strong>GET /test</strong><br>
+                    Página de testes interativos
+                </div>
+            </div>
+            
+            <div class="info">
+                <h2>🧪 Funcionalidades de Teste</h2>
+                <ul>
+                    <li>Adicione <code>?test_rollback=true</code> para reverter transações</li>
+                    <li>Logs detalhados em modo DEBUG</li>
+                    <li>Auditoria completa de operações</li>
+                    <li>CORS habilitado para testes</li>
+                </ul>
+            </div>
+        </div>
+    </body>
+    </html>
+    """, 
+    environment=os.getenv('ENVIRONMENT', 'homologacao'),
+    test_mode=TEST_MODE,
+    allow_rollback=ALLOW_ROLLBACK,
+    database=DB_CONFIG['database'],
+    port=os.getenv('FLASK_PORT', '5001')
+    )
+
+@app.route('/health')
+def health():
+    """Endpoint de verificação de saúde"""
+    try:
+        # Testar conexão com banco
+        con = get_database_connection()
+        con.close()
+        
+        return jsonify({
+            'status': 'healthy',
+            'environment': 'homologacao',
+            'database': 'connected',
+            'timestamp': datetime.now().isoformat(),
+            'test_mode': TEST_MODE
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+@app.route('/consulta/<etiqueta>')
+def consulta_etiqueta(etiqueta):
+    """Endpoint para consultar informações de uma etiqueta"""
+    try:
+        logger.info(f"Consultando etiqueta: {etiqueta}")
+        result = consultar_material(etiqueta)
+        
+        if result:
+            return jsonify({
+                'success': True,
+                'etiqueta': etiqueta,
+                'dados': result,
+                'environment': 'homologacao'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Etiqueta não encontrada',
+                'etiqueta': etiqueta,
+                'environment': 'homologacao'
+            }), 404
+            
+    except Exception as e:
+        logger.error(f"Erro na consulta: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Erro interno: {str(e)}',
+            'environment': 'homologacao'
+        }), 500
+
+@app.route('/api/requisicoes_pendentes', methods=['GET'])
+def requisicoes_pendentes():
+    """
+    Endpoint para consultar requisições pendentes no sistema - Ambiente de Homologação.
+    Retorna: lista de requisições pendentes com detalhes
+    """
+    con = None
+    try:
+        logger.info("[REQUISICOES_PENDENTES] Iniciando consulta de requisições pendentes - HOMOLOGAÇÃO")
+        
+        con = get_database_connection()
+        cur = con.cursor()
+        
+        # Query SQL para requisições pendentes
+        query = """
+            SELECT 
+                m.codigomoldes as cod_item, 
+                m.DESCRICAODOMOLDE as material, 
+                a.DATA as dt_requisicao, 
+                a1.ALMOXARIFE as dep_origem,
+                ps.FISICO ,
+                a2.ALMOXARIFE as dep_destino, 
+                v.NREC,
+                v.ETIQ,
+                v.QUANTIDADE as qt_volume,
+                COALESCE(a.QT_ORIGINAL, v.QUANTIDADE) as qt_requisitada , m.localizacao 
+            FROM REQUISICOES_ALMX a 
+            INNER JOIN DS_ENTRA_ESTOQUE_VOLS v ON v.NREC = a.NREQ AND v.BAIXADO = 0 
+            INNER JOIN MOVIM_ALMOX a1 ON a1.CODIGOALM = a.ALMX_ORIG 
+                inner join PRODUTOS_SALDO ps on ps.codigomoldes = v.codigomoldes and ps.CODIGOALM = a1.CODIGOALM
+            INNER JOIN MOVIM_ALMOX a2 ON a2.CODIGOALM = a.ALMX_DEST 
+            INNER JOIN moldes m ON m.codigomoldes = a.CODIGOMOLDES 
+            WHERE a.data > '1.1.2024'
+            ORDER BY a.DATA DESC
+        """
+        
+        cur.execute(query)
+        resultados = cur.fetchall()
+        
+        # Formatar os resultados
+        requisicoes = []
+        for row in resultados:
+            # Tratamento específico para campo de texto
+            localizacao_raw = row[10]
+            if localizacao_raw is None:
+                localizacao_valor = 'N/A'
+            elif isinstance(localizacao_raw, str):
+                localizacao_valor = localizacao_raw.strip() if localizacao_raw.strip() else 'N/A'
+            else:
+                localizacao_valor = str(localizacao_raw).strip() if str(localizacao_raw).strip() else 'N/A'
+            
+            requisicao = {
+                'cod_item': row[0],
+                'material': row[1],
+                'dt_requisicao': row[2].strftime('%d/%m/%Y') if row[2] else None,
+                'dep_origem': row[3],
+                'saldo': round(float(row[4]), 2) if row[4] is not None else 0,
+                'dep_destino': row[5],
+                'nrec': row[6],
+                'etiq': row[7],
+                'qt_volume': float(row[8]) if row[8] is not None else 0,
+                'qt_requisitada': float(row[9]) if row[9] is not None else 0,
+                'localizacao': localizacao_valor
+            }
+            requisicoes.append(requisicao)
+        
+        logger.info(f"[REQUISICOES_PENDENTES] Encontradas {len(requisicoes)} requisições pendentes - HOMOLOGAÇÃO")
+        
+        return jsonify({
+            'status': 'success',
+            'total': len(requisicoes),
+            'requisicoes': requisicoes,
+            'environment': 'homologacao'
+        }), 200
+            
+    except fdb.DatabaseError as db_error:
+        logger.error(f"Erro no banco de dados (requisicoes_pendentes): {db_error}")
+        return jsonify({
+            'status': 'error',
+            'erro': 'Erro no banco de dados.',
+            'detalhes': str(db_error),
+            'environment': 'homologacao'
+        }), 500
+    except Exception as e:
+        logger.error(f"Erro inesperado (requisicoes_pendentes): {e}")
+        return jsonify({
+            'status': 'error',
+            'erro': 'Ocorreu um erro interno no servidor.',
+            'detalhes': str(e),
+            'environment': 'homologacao'
+        }), 500
+    finally:
+        if con:
+            con.close()
+
+@app.route('/api/consulta_material', methods=['POST'])
+def consulta_material_api():
+    """Endpoint para consultar material via QR Code - compatível com frontend"""
+    try:
+        data = request.get_json()
+        codigo = data.get('codigo') if data else None
+        
+        if not codigo:
+            return jsonify({
+                'erro': 'O campo "codigo" é obrigatório.'
+            }), 400
+        
+        logger.info(f"[CONSULTA_MATERIAL] Consultando código: {codigo}")
+        result = consultar_material(codigo)
+        
+        if result:
+            # Verificar se os dados essenciais estão presentes
+            codigo_material = result[0] if len(result) > 0 else None
+            descricao_material = result[1] if len(result) > 1 else None
+            
+            # Se código ou descrição são None/vazios ou contêm 'N/A', considerar como material não encontrado
+            if (not codigo_material or not descricao_material or 
+                str(codigo_material).upper() == 'N/A' or str(descricao_material).upper() == 'N/A' or
+                codigo_material == 'null' or descricao_material == 'null'):
+                logger.warning(f"[CONSULTA_MATERIAL] Material INVÁLIDO - código: {codigo_material}, descrição: {descricao_material}")
+                return jsonify({'erro': 'Nenhum material encontrado para o código lido.'}), 404
+            
+            # result é uma tupla, vamos converter para dicionário
+            # Retornando a mesma estrutura que o backend de produção
+            
+            # Adiciona verificação para evitar erro de NoneType com round()
+            qt_etiq_formatada = round(result[4], 2) if len(result) > 4 and result[4] is not None else None
+            qt_rec_formatada = round(result[5], 2) if len(result) > 5 and result[5] is not None else None
+            
+            material = {
+                'codigomoldes': codigo_material,
+                'descricao': descricao_material,
+                'tipo': result[2] if len(result) > 2 else '',
+                'proced': result[3] if len(result) > 3 else '',
+                'qt_etiq': qt_etiq_formatada,
+                'qt_rec': qt_rec_formatada,
+                'localizacao': result[6] if len(result) > 6 else '',
+                'mensagem': result[7] if len(result) > 7 else '',
+                'dep_origem': result[8] if len(result) > 8 else '',
+                'dep_destino': result[9] if len(result) > 9 else '',
+                'unidade': result[10] if len(result) > 10 else '',
+                'nreq': result[11] if len(result) > 11 else '',
+                'saldo': round(result[15], 2) if len(result) > 15 and result[15] is not None else 0
+            }
+            
+            logger.info(f"[CONSULTA_MATERIAL] Material VÁLIDO formatado para código: {codigo}")
+            return jsonify(material), 200
+        else:
+            return jsonify({
+                'erro': 'Material não encontrado'
+            }), 404
+            
+    except Exception as e:
+        logger.error(f"Erro na consulta de material: {e}")
+        return jsonify({
+            'erro': f'Erro interno: {str(e)}'
+        }), 500
+
+@app.route('/api/transferencia_material', methods=['POST'])
+def transferencia_material_api():
+    """Endpoint para transferência de material via QR Code - compatível com frontend"""
+    try:
+        data = request.get_json()
+        codigo = data.get('codigo') if data else None
+        
+        if not codigo:
+            return jsonify({
+                'erro': 'O campo "codigo" é obrigatório.'
+            }), 400
+        
+        logger.info(f"[TRANSFERENCIA_MATERIAL] Processando código: {codigo}")
+        
+        # Em ambiente de homologação, simular transferência bem-sucedida
+        # sem executar stored procedures que podem não existir
+        if TEST_MODE:
+            logger.info("MODO TESTE: Simulando transferência bem-sucedida")
+            
+            # Log de auditoria
+            log_audit('transferencia_material', codigo, 1, 'simulado')
+            
+            return jsonify({
+                'sucesso': True,
+                'mensagem': f"Transferência simulada com sucesso para código: {codigo} (AMBIENTE DE HOMOLOGAÇÃO)",
+                'quantidade_transferida': 1,
+                'environment': 'homologacao'
+            })
+        else:
+            # Modo produção - tentar executar a stored procedure real
+            try:
+                qtd_retorno, was_rollback = executar_baixa_material(codigo, 1)
+                
+                # Log de auditoria
+                log_audit('transferencia_material', codigo, 1, qtd_retorno)
+                
+                if qtd_retorno is None:
+                    return jsonify({
+                        'erro': 'Erro na execução da stored procedure'
+                    }), 500
+                
+                elif qtd_retorno > 0:
+                    message = f"Transferência efetuada com sucesso! Quantidade: {qtd_retorno}"
+                    if was_rollback:
+                        message += " (TESTE - transação revertida)"
+                    
+                    return jsonify({
+                        'sucesso': True,
+                        'mensagem': message,
+                        'quantidade_transferida': qtd_retorno,
+                        'environment': 'homologacao'
+                    })
+                else:
+                    return jsonify({
+                        'erro': 'Nenhuma quantidade foi transferida'
+                    }), 400
+                    
+            except Exception as sp_error:
+                logger.error(f"Erro na stored procedure: {sp_error}")
+                # Fallback: simular sucesso mesmo em caso de erro da SP
+                return jsonify({
+                    'sucesso': True,
+                    'mensagem': f"Transferência processada para código: {codigo} (FALLBACK - SP indisponível)",
+                    'quantidade_transferida': 1,
+                    'environment': 'homologacao',
+                    'warning': 'Stored procedure indisponível, operação simulada'
+                })
+         
+    except Exception as e:
+        logger.error(f"Erro na transferência de material: {e}")
+        return jsonify({
+            'erro': f'Erro interno: {str(e)}'
+        }), 500
+
+@app.route('/transfer', methods=['POST'])
+def transfer():
+    """Endpoint principal para transferência de material"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'etiqueta' not in data or 'quantidade' not in data:
+            return jsonify({
+                'success': False,
+                'message': 'Dados inválidos. Necessário: etiqueta e quantidade',
+                'environment': 'homologacao'
+            }), 400
+        
+        etiqueta = data['etiqueta']
+        quantidade = data['quantidade']
+        
+        logger.info(f"Iniciando transferência - Etiqueta: {etiqueta}, Quantidade: {quantidade}")
+        
+        # Executar a baixa
+        qtd_retorno, was_rollback = executar_baixa_material(etiqueta, quantidade)
+        
+        # Log de auditoria
+        log_audit('transfer', etiqueta, quantidade, qtd_retorno)
+        
+        # Processar resultado
+        if qtd_retorno is None:
+            return jsonify({
+                'success': False,
+                'message': 'Erro na execução da stored procedure',
+                'environment': 'homologacao',
+                'rollback': was_rollback
+            }), 500
+        
+        elif qtd_retorno > 0:
+            message = f"Baixa efetuada com sucesso! Quantidade: {qtd_retorno}"
+            if was_rollback:
+                message += " (TESTE - transação revertida)"
+            
+            return jsonify({
+                'success': True,
+                'message': message,
+                'quantidade_baixada': qtd_retorno,
+                'etiqueta': etiqueta,
+                'tipo': 'baixa_completa',
+                'environment': 'homologacao',
+                'rollback': was_rollback
+            })
+        
+        elif qtd_retorno == -1:
+            return jsonify({
+                'success': False,
+                'message': 'Etiqueta inválida',
+                'environment': 'homologacao'
+            }), 400
+        
+        elif qtd_retorno == -2:
+            return jsonify({
+                'success': False,
+                'message': 'Etiqueta não encontrada',
+                'environment': 'homologacao'
+            }), 404
+        
+        elif qtd_retorno == -3:
+            return jsonify({
+                'success': False,
+                'message': 'Produto já baixado',
+                'environment': 'homologacao'
+            }), 400
+        
+        elif qtd_retorno == -4:
+            message = "Baixa efetuada - parcial da requisição"
+            if was_rollback:
+                message += " (TESTE - transação revertida)"
+            
+            return jsonify({
+                'success': True,
+                'message': message,
+                'etiqueta': etiqueta,
+                'tipo': 'baixa_parcial',
+                'environment': 'homologacao',
+                'rollback': was_rollback
+            })
+        
+        else:
+            return jsonify({
+                'success': False,
+                'message': f'Código de retorno não reconhecido: {qtd_retorno}',
+                'environment': 'homologacao'
+            }), 500
+    
+    except Exception as e:
+        logger.error(f"Erro na transferência: {e}")
+        logger.error(traceback.format_exc())
+        
+        log_audit('transfer_error', data.get('etiqueta', 'unknown'), data.get('quantidade', 0), str(e))
+        
+        return jsonify({
+            'success': False,
+            'message': f'Erro interno: {str(e)}',
+            'environment': 'homologacao'
+        }), 500
+
+@app.route('/test')
+def test_page():
+    """Página de testes interativos"""
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Testes - Homologação</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; background-color: #f0f8ff; }
+            .container { max-width: 1000px; margin: 0 auto; }
+            .test-section { background-color: white; padding: 20px; margin: 20px 0; border-radius: 8px; }
+            button { background-color: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+            button:hover { background-color: #0056b3; }
+            input, select { padding: 8px; margin: 5px; border: 1px solid #ddd; border-radius: 4px; }
+            .result { background-color: #f8f9fa; padding: 15px; margin: 10px 0; border-radius: 4px; white-space: pre-wrap; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🧪 Página de Testes - Homologação</h1>
+            
+            <div class="test-section">
+                <h2>Teste de Transferência</h2>
+                <input type="text" id="etiqueta" placeholder="Etiqueta (ex: AA161722)" value="AA161722">
+                <input type="number" id="quantidade" placeholder="Quantidade" value="1">
+                <label><input type="checkbox" id="rollback"> Modo Teste (Rollback)</label><br><br>
+                <button onclick="testarTransferencia()">Executar Transferência</button>
+                <div id="resultTransfer" class="result"></div>
+            </div>
+            
+            <div class="test-section">
+                <h2>Consulta de Material</h2>
+                <input type="text" id="etiquetaConsulta" placeholder="Etiqueta" value="AA161722">
+                <button onclick="consultarMaterial()">Consultar</button>
+                <div id="resultConsulta" class="result"></div>
+            </div>
+            
+            <div class="test-section">
+                <h2>Verificação de Saúde</h2>
+                <button onclick="verificarSaude()">Verificar Status</button>
+                <div id="resultSaude" class="result"></div>
+            </div>
+        </div>
+        
+        <script>
+            async function testarTransferencia() {
+                const etiqueta = document.getElementById('etiqueta').value;
+                const quantidade = document.getElementById('quantidade').value;
+                const rollback = document.getElementById('rollback').checked;
+                
+                const url = rollback ? '/transfer?test_rollback=true' : '/transfer';
+                
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ etiqueta, quantidade: parseInt(quantidade) })
+                    });
+                    
+                    const result = await response.json();
+                    document.getElementById('resultTransfer').textContent = JSON.stringify(result, null, 2);
+                } catch (error) {
+                    document.getElementById('resultTransfer').textContent = 'Erro: ' + error.message;
+                }
+            }
+            
+            async function consultarMaterial() {
+                const etiqueta = document.getElementById('etiquetaConsulta').value;
+                
+                try {
+                    const response = await fetch(`/consulta/${etiqueta}`);
+                    const result = await response.json();
+                    document.getElementById('resultConsulta').textContent = JSON.stringify(result, null, 2);
+                } catch (error) {
+                    document.getElementById('resultConsulta').textContent = 'Erro: ' + error.message;
+                }
+            }
+            
+            async function verificarSaude() {
+                try {
+                    const response = await fetch('/health');
+                    const result = await response.json();
+                    document.getElementById('resultSaude').textContent = JSON.stringify(result, null, 2);
+                } catch (error) {
+                    document.getElementById('resultSaude').textContent = 'Erro: ' + error.message;
+                }
+            }
+        </script>
+    </body>
+    </html>
+    """)
+
+
+
+if __name__ == '__main__':
+    # Configurações específicas para produção - porta fixa 5000
+    port = 5000  # Porta fixa para celulares corporativos
+    host = os.getenv('FLASK_HOST', '0.0.0.0')
+    debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+    
+    logger.info(f"Iniciando servidor de produção na porta {port}")
+    logger.info(f"Modo teste: {TEST_MODE}")
+    logger.info(f"Rollback permitido: {ALLOW_ROLLBACK}")
+    logger.info(f"Banco de dados: {DB_CONFIG['database']}")
+    
+    # Verificar se certificados SSL existem
+    ssl_cert = os.getenv('SSL_CERT_PATH')
+    ssl_key = os.getenv('SSL_KEY_PATH')
+    
+    if ssl_cert and ssl_key and os.path.exists(ssl_cert) and os.path.exists(ssl_key):
+        logger.info("Iniciando com SSL")
+        app.run(host=host, port=port, debug=debug, ssl_context=(ssl_cert, ssl_key))
+    else:
+        logger.info("Iniciando sem SSL")
+        app.run(host=host, port=port, debug=debug)

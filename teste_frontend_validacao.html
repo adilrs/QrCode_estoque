@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste de Validação Frontend</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-container {
+            border: 1px solid #ccc;
+            padding: 20px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .info { background-color: #d1ecf1; border-color: #bee5eb; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #resultado {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            min-height: 50px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Teste de Validação - Frontend</h1>
+    
+    <div class="test-container">
+        <h3>Teste da Etiqueta ASD12546 (deve retornar erro 404)</h3>
+        <button onclick="testarEtiquetaInvalida()">Testar ASD12546</button>
+    </div>
+    
+    <div class="test-container">
+        <h3>Teste de Etiqueta Válida (AA148355)</h3>
+        <button onclick="testarEtiquetaValida()">Testar AA148355</button>
+    </div>
+    
+    <div id="resultado" class="info">
+        Clique em um dos botões para testar...
+    </div>
+
+    <script>
+        async function testarEtiqueta(codigo, descricao) {
+            const resultado = document.getElementById('resultado');
+            resultado.className = 'info';
+            resultado.innerHTML = `Testando ${descricao}...`;
+            
+            try {
+                const response = await fetch('/api/consulta_material', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ codigo: codigo })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultado.className = 'success';
+                    resultado.innerHTML = `
+                        <h4>✅ Material Encontrado (Status: ${response.status})</h4>
+                        <p><strong>Código:</strong> ${data.codigomoldes || 'N/A'}</p>
+                        <p><strong>Descrição:</strong> ${data.descricao || 'N/A'}</p>
+                        <p><strong>Quantidade:</strong> ${data.qt_etiq || 'N/A'}</p>
+                        <p><strong>Localização:</strong> ${data.localizacao || 'N/A'}</p>
+                    `;
+                } else {
+                    resultado.className = 'error';
+                    resultado.innerHTML = `
+                        <h4>❌ Material Não Encontrado (Status: ${response.status})</h4>
+                        <p><strong>Erro:</strong> ${data.erro || 'Erro desconhecido'}</p>
+                        <p><strong>Comportamento:</strong> ${response.status === 404 ? 'CORRETO - Retornou 404 como esperado' : 'INCORRETO - Deveria retornar 404'}</p>
+                    `;
+                }
+            } catch (error) {
+                resultado.className = 'error';
+                resultado.innerHTML = `
+                    <h4>❌ Erro de Conexão</h4>
+                    <p><strong>Erro:</strong> ${error.message}</p>
+                `;
+            }
+        }
+        
+        function testarEtiquetaInvalida() {
+            testarEtiqueta('ASD12546', 'Etiqueta Inválida (ASD12546)');
+        }
+        
+        function testarEtiquetaValida() {
+            testarEtiqueta('AA148355', 'Etiqueta Válida (AA148355)');
+        }
+    </script>
+</body>
+</html>

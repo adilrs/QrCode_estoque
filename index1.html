@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consulta de Material</title>
+    <!-- Inclui a biblioteca para leitura de QR Code -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <!-- Inclui o framework Tailwind CSS para estilização -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Fonte Google Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Ícones Material Icons -->
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        /* Define a fonte Inter para o corpo do documento */
+        body { 
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #3498db, #1a5276);
+            height: 100vh;
+            width: 100vw;
+            margin: 0;
+            padding: 0;
+            overflow: hidden !important;
+            position: fixed;
+            display: flex;
+            flex-direction: column;
+            touch-action: none; /* Previne comportamentos de scroll nativos do navegador */
+            -webkit-overflow-scrolling: none;
+        }
+        
+        /* Estilo para o leitor de QR Code */
+        #qr-reader {
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            margin: 0 auto;
+            max-width: 100% !important;
+            width: 100% !important;
+            max-height: 40vh !important;
+        }
+        
+        /* Ajustes para o scanner HTML5 QR */
+        #qr-reader video {
+            object-fit: cover !important;
+            width: 100% !important;
+            height: 100% !important;
+        }
+        
+        #qr-reader__dashboard {
+            width: 100% !important;
+        }
+        
+        /* Animação de pulso para o status */
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        .pulse-animation {
+            animation: pulse 2s infinite ease-in-out;
+        }
+        
+        /* Melhorias para toque em dispositivos móveis */
+        button {
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-between h-screen max-h-screen p-1 overflow-hidden">
+    <!-- Cabeçalho com logo ou ícone -->
+    <header class="w-full max-w-md mb-2 flex items-center justify-center">
+        <div class="flex items-center bg-white bg-opacity-90 px-4 py-2 rounded-full shadow-lg">
+            <span class="material-icons text-blue-600 mr-2">qr_code_scanner</span>
+            <h1 class="text-xl font-bold text-blue-800">Scanner de Materiais</h1>
+        </div>
+    </header>
+
+    <!-- Container principal com card arredondado e sombra -->
+    <div class="bg-white shadow-xl rounded-2xl p-2 w-full max-w-md text-center backdrop-filter backdrop-blur-sm bg-opacity-95 flex flex-col flex-grow overflow-hidden">
+        <!-- Contêiner do leitor de QR Code com tamanho responsivo -->
+        <div id="qr-reader-container" class="w-full mb-2 flex items-center justify-center">
+            <div id="qr-reader" class="mx-auto" style="width: 100%; max-width: 230px; height: auto; aspect-ratio: 1/1;"></div>
+        </div>
+        
+        <!-- Mensagem de status para o usuário com animação de pulso -->
+        <div id="status-message" class="mt-3 py-2 px-3 rounded-lg bg-blue-50 text-blue-800 font-medium text-sm pulse-animation inline-block">Aponte a câmera para um QR Code</div>
+
+        <!-- Seção de dados do material, inicialmente oculta -->
+        <div id="material-data" class="hidden mt-3 text-left p-3 bg-blue-50 border border-blue-100 rounded-xl shadow-inner flex-grow overflow-auto max-h-[calc(100vh-200px)] overflow-x-hidden">
+            <h2 class="text-xl font-bold text-blue-800 mb-3 flex items-center">
+                <span class="material-icons mr-2 text-blue-600">inventory_2</span>
+                Dados do Material
+            </h2>
+            
+            <!-- Grid para informações em dispositivos móveis -->
+            <div class="grid grid-cols-1 gap-2 text-sm">
+                <div class="p-1 bg-white rounded-lg shadow-sm">
+                    <p class="font-semibold text-gray-700">Código Moldes</p>
+                    <p id="codigomoldes" class="text-blue-700 font-medium"></p>
+                </div>
+                
+                <div class="p-1 bg-white rounded-lg shadow-sm">
+                    <p class="font-semibold text-gray-700">Descrição</p>
+                    <p id="descricao" class="text-blue-700 font-medium"></p>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-2">
+                    <div class="p-1 bg-white rounded-lg shadow-sm">
+                        <p class="font-semibold text-gray-700">Tipo</p>
+                        <p id="tipo" class="text-blue-700 font-medium"></p>
+                    </div>
+                    
+                    <div class="p-1 bg-white rounded-lg shadow-sm">
+                        <p class="font-semibold text-gray-700">Procedimento</p>
+                        <p id="proced" class="text-blue-700 font-medium"></p>
+                    </div>
+                </div>
+                
+                <div class="p-1 bg-white rounded-lg shadow-sm">
+                    <p class="font-semibold text-gray-700">Mensagem</p>
+                    <p id="msg" class="text-blue-700 font-medium"></p>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-2">
+                    <div class="p-1 bg-white rounded-lg shadow-sm">
+                        <p class="font-semibold text-gray-700">Qt. na Etiqueta</p>
+                        <p id="qt_etiq" class="text-blue-700 font-medium"></p>
+                    </div>
+                    
+                    <div class="p-1 bg-white rounded-lg shadow-sm">
+                        <p class="font-semibold text-gray-700">Qt. Requisitada</p>
+                        <p id="qt_rec" class="text-blue-700 font-medium"></p>
+                    </div>
+                </div>
+                
+                <div class="p-1 bg-white rounded-lg shadow-sm">
+                    <p class="font-semibold text-gray-700">Localização</p>
+                    <p id="localizacao" class="text-blue-700 font-medium"></p>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-2">
+                    <div class="p-1 bg-white rounded-lg shadow-sm">
+                        <p class="font-semibold text-gray-700">Dep. Origem</p>
+                        <p id="dep_origem" class="text-blue-700 font-medium"></p>
+                    </div>
+                    
+                    <div class="p-1 bg-white rounded-lg shadow-sm">
+                        <p class="font-semibold text-gray-700">Dep. Destino</p>
+                        <p id="dep_destino" class="text-blue-700 font-medium"></p>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-2">
+                    <div class="p-1 bg-white rounded-lg shadow-sm">
+                        <p class="font-semibold text-gray-700">Unidade</p>
+                        <p id="unidade" class="text-blue-700 font-medium"></p>
+                    </div>
+                    
+                    <div class="p-1 bg-white rounded-lg shadow-sm">
+                        <p class="font-semibold text-gray-700">Nº Requisição</p>
+                        <p id="nreq" class="text-blue-700 font-medium"></p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Contêiner dos botões de ação -->
+            <div id="button-container" class="flex flex-col space-y-2 mt-2">
+                <button id="transfer-btn" class="flex items-center justify-center bg-blue-600 text-white font-bold py-2 px-4 rounded-xl hover:bg-blue-700 transition-colors shadow-md text-base">
+                    <span class="material-icons mr-2">check_circle</span>
+                    Confirmar Transferência
+                </button>
+                <button id="restart-scan-btn" class="flex items-center justify-center bg-gray-600 text-white font-bold py-2 px-4 rounded-xl hover:bg-gray-700 transition-colors shadow-md text-base">
+                    <span class="material-icons mr-2">qr_code_scanner</span>
+                    Escanear Novamente
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Rodapé com informações de versão -->
+    <footer class="mt-2 text-xs text-white text-opacity-70">
+        <p>Sistema de Transferência de Materiais v1.0</p>
+    </footer>
+
+    <!-- Script JavaScript para a lógica da aplicação -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Referências aos elementos do DOM
+            const statusMessage = document.getElementById('status-message');
+            const materialDataSection = document.getElementById('material-data');
+            const transferBtn = document.getElementById('transfer-btn');
+            const restartScanBtn = document.getElementById('restart-scan-btn');
+            const qrReaderContainer = document.getElementById('qr-reader-container');
+            const buttonContainer = document.getElementById('button-container');
+
+            let lastScanResult = null;
+            let html5QrCode = null;
+            
+            // Função para mostrar feedback visual ao usuário
+            function showFeedback(message, type = 'info') {
+                // Remove classes anteriores
+                statusMessage.classList.remove('bg-blue-50', 'text-blue-800', 'bg-green-50', 'text-green-800', 'bg-red-50', 'text-red-800', 'bg-yellow-50', 'text-yellow-800');
+                
+                // Adiciona classes baseadas no tipo de mensagem
+                switch(type) {
+                    case 'success':
+                        statusMessage.classList.add('bg-green-50', 'text-green-800');
+                        break;
+                    case 'error':
+                        statusMessage.classList.add('bg-red-50', 'text-red-800');
+                        break;
+                    case 'warning':
+                        statusMessage.classList.add('bg-yellow-50', 'text-yellow-800');
+                        break;
+                    default: // info
+                        statusMessage.classList.add('bg-blue-50', 'text-blue-800');
+                }
+                
+                statusMessage.textContent = message;
+                
+                // Adiciona efeito de vibração para feedback tátil em dispositivos móveis
+                if (type === 'error' && navigator.vibrate) {
+                    navigator.vibrate(200);
+                }
+            }
+
+            // Função para calcular o tamanho da área de leitura do QR Code otimizada para celular
+            function getQrBoxSize(viewfinderWidth, viewfinderHeight) {
+                const minEdgePercentage = 0.95; // Aumentado para melhor visualização em celular
+                const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
+                const qrboxSize = Math.floor(minEdgeSize * minEdgePercentage);
+                return { width: qrboxSize, height: qrboxSize };
+            }
+
+            // Função para iniciar o scanner da câmera
+            async function startScanner() {
+                hideMaterialData();
+                showFeedback('Aponte a câmera para um QR Code');
+                
+                // Adiciona classe de animação para chamar atenção
+                statusMessage.classList.add('pulse-animation');
+                
+                // Exibe o contêiner dos botões
+                buttonContainer.style.display = 'flex';
+                transferBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                transferBtn.disabled = false;
+
+                // Certifica-se de que o contêiner do QR reader esteja visível
+                qrReaderContainer.style.display = 'flex';
+
+                // Para o leitor se já estiver em execução
+                if (html5QrCode && html5QrCode.getState() === Html5QrcodeScannerState.SCANNING) {
+                    await html5QrCode.stop().catch(console.error);
+                }
+
+                // Limpa o conteúdo do contêiner do leitor para uma nova inicialização
+                qrReaderContainer.innerHTML = '';
+                
+                // Recria a instância do leitor, garantindo um estado limpo
+                const qrReaderElement = document.createElement('div');
+                qrReaderElement.id = 'qr-reader';
+                qrReaderElement.classList.add('mx-auto');
+                // Ajusta o tamanho do leitor de forma responsiva
+                const screenWidth = window.innerWidth;
+                const screenHeight = window.innerHeight;
+                const containerWidth = Math.min(screenWidth - 30, 230);
+                qrReaderElement.style.width = '100%';
+                qrReaderElement.style.maxWidth = containerWidth + 'px';
+                qrReaderElement.style.height = 'auto';
+                qrReaderElement.style.maxHeight = (screenHeight * 0.4) + 'px';
+                qrReaderElement.style.aspectRatio = '1/1';
+                qrReaderContainer.appendChild(qrReaderElement);
+                
+                // Adiciona o campo de entrada manual para quando a câmera não for detectada
+                const manualInputContainer = document.createElement('div');
+                manualInputContainer.id = 'manual-input-container';
+                manualInputContainer.className = 'mt-4 hidden';
+                manualInputContainer.innerHTML = `
+                    <div class="p-4 bg-yellow-50 rounded-lg shadow-sm">
+                        <p class="text-base text-yellow-700 mb-3 font-medium">Câmera não detectada. Digite o número da etiqueta manualmente:</p>
+                        <div class="flex gap-2">
+                            <input type="text" id="manual-code-input" class="flex-grow p-3 text-lg border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[48px] font-mono" placeholder="Digite o código da etiqueta" style="min-width: 200px; font-size: 16px;">
+                            <button id="manual-submit-btn" class="bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 transition-colors min-h-[48px] flex items-center justify-center">
+                                <span class="material-icons">search</span>
+                            </button>
+                        </div>
+                    </div>
+                `;
+                qrReaderContainer.appendChild(manualInputContainer);
+                
+                // Adiciona evento para o botão de envio manual
+                const manualSubmitBtn = document.getElementById('manual-submit-btn');
+                const manualCodeInput = document.getElementById('manual-code-input');
+                if (manualSubmitBtn && manualCodeInput) {
+                    manualSubmitBtn.addEventListener('click', () => {
+                        const manualCode = manualCodeInput.value.trim();
+                        if (manualCode) {
+                            lastScanResult = manualCode;
+                            showFeedback("Código inserido manualmente. Consultando material...", "info");
+                            consultMaterial(manualCode);
+                        } else {
+                            showFeedback("Por favor, digite um código válido", "warning");
+                            if (navigator.vibrate) navigator.vibrate(100);
+                        }
+                    });
+                    
+                    // Permite enviar com Enter
+                    manualCodeInput.addEventListener('keypress', (e) => {
+                        if (e.key === 'Enter') {
+                            manualSubmitBtn.click();
+                        }
+                    });
+                }
+                
+                try {
+                    html5QrCode = new Html5Qrcode("qr-reader");
+
+                    const config = { 
+                        fps: 15, // Aumentado para melhor fluidez
+                        qrbox: getQrBoxSize,
+                        disableFlip: false, 
+                        aspectRatio: 1.0,
+                        formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ], // Otimiza para QR Code
+                        videoConstraints: {
+                            facingMode: "environment",
+                            width: { ideal: Math.min(window.innerWidth, 640) },
+                            height: { ideal: Math.min(window.innerWidth, 480) }
+                        }
+                    };
+
+                    await html5QrCode.start({ facingMode: "environment" }, config, 
+                        (decodedText, decodedResult) => {
+                            // Evita o reprocessamento do mesmo QR Code em uma leitura contínua
+                            if (decodedText !== lastScanResult) {
+                                lastScanResult = decodedText;
+                                
+                                // Feedback tátil de sucesso para dispositivos móveis
+                                if (navigator.vibrate) {
+                                    navigator.vibrate([100, 50, 100]); // Padrão de vibração de sucesso
+                                }
+                                
+                                html5QrCode.stop().then(() => {
+                                    console.log("Leitura de QR Code bem-sucedida:", decodedText);
+                                    showFeedback("QR Code lido com sucesso! Consultando material...", "success");
+                                    
+                                    // Remove a animação de pulso
+                                    statusMessage.classList.remove('pulse-animation');
+                                    
+                                    // Chama a função para consultar o material
+                                    consultMaterial(decodedText);
+                                }).catch(err => {
+                                    console.error("Erro ao parar o leitor:", err);
+                                });
+                            }
+                        },
+                        (errorMessage) => { /* Ignora erros de leitura */ }
+                    );
+                    console.log("Câmera iniciada com sucesso.");
+                    // Oculta o campo de entrada manual se a câmera funcionar
+                    document.getElementById('manual-input-container').classList.add('hidden');
+                } catch (err) {
+                    console.error("Erro ao iniciar a câmera:", err);
+                    showFeedback("Não foi possível iniciar a câmera. Você pode digitar o código manualmente.", "warning");
+                    // Mostra o campo de entrada manual
+                    const manualInputContainer = document.getElementById('manual-input-container');
+                    if (manualInputContainer) {
+                        manualInputContainer.classList.remove('hidden');
+                    }
+                }
+            }
+
+            // Reinicia a tela e o scanner
+            function restartScanner() {
+                lastScanResult = null;
+                // Adiciona efeito de transição
+                materialDataSection.classList.add('opacity-0');
+                setTimeout(() => {
+                    // Garante que o QR reader seja exibido novamente
+                    qrReaderContainer.style.display = 'flex';
+                    startScanner();
+                    materialDataSection.classList.remove('opacity-0');
+                }, 300);
+            }
+
+            // Função para consultar os dados do material no servidor
+            async function consultMaterial(codigo) {
+                try {
+                    // Mostra indicador de carregamento
+                    showFeedback("Consultando dados do material...", "info");
+                    
+                    // Requisição para o back-end usando URL relativa
+                    const response = await fetch('/api/consulta_material', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ codigo: codigo })
+                    });
+                    const result = await response.json();
+                    if (response.ok) {
+                        showFeedback(result.mensagem, "success");
+                        displayMaterialData(result);
+                        
+                        // Não precisamos mais rolar, pois o layout já está otimizado para caber na tela
+                    } else {
+                        showFeedback("Erro: " + (result.erro || "Falha na consulta."), "error");
+                        hideMaterialData();
+                    }
+                } catch (error) {
+                    console.error("Erro na comunicação com o servidor:", error);
+                    showFeedback("Erro de conexão com o servidor.", "error");
+                    hideMaterialData();
+                }
+            }
+
+            // Exibe os dados do material na tela, mapeando os campos do JSON
+            function displayMaterialData(data) {
+                if (data) {
+                    // Adiciona efeito de fade-in para os dados
+                    materialDataSection.style.opacity = '0';
+                    materialDataSection.classList.remove('hidden');
+                    
+                    // Oculta o contêiner do QR reader para eliminar o scroll infinito
+                    qrReaderContainer.style.display = 'none';
+                    
+                    // Preenche os dados
+                    document.getElementById('codigomoldes').textContent = data.codigomoldes || 'N/A';
+                    document.getElementById('descricao').textContent = data.descricao || 'N/A';
+                    document.getElementById('tipo').textContent = data.tipo || 'N/A';
+                    document.getElementById('proced').textContent = data.proced || 'N/A';
+                    document.getElementById('msg').textContent = data.msg || 'N/A';
+                    document.getElementById('qt_etiq').textContent = data.qt_etiq || 'N/A';
+                    document.getElementById('qt_rec').textContent = data.qt_rec || 'N/A';
+                    document.getElementById('localizacao').textContent = data.localizacao || 'N/A';
+                    document.getElementById('dep_origem').textContent = data.dep_origem || 'N/A';
+                    document.getElementById('dep_destino').textContent = data.dep_destino || 'N/A';
+                    document.getElementById('unidade').textContent = data.unidade || 'N/A';
+                    document.getElementById('nreq').textContent = data.nreq || 'N/A';
+                    
+                    // Anima a exibição dos dados
+                    setTimeout(() => {
+                        materialDataSection.style.transition = 'opacity 0.3s ease-in-out';
+                        materialDataSection.style.opacity = '1';
+                    }, 50);
+                    
+                    // Verifica se a mensagem contém 'baixad' para ocultar o botão de transferência
+                    const message = data.msg || '';
+                    if (message.toLowerCase().includes('baixad')) {
+                        // Oculta o botão de transferência
+                        transferBtn.style.display = 'none';
+                        showFeedback("Atenção: A etiqueta já foi baixada. A transferência não pode ser confirmada novamente.", "warning");
+                    } else {
+                        // Garante que o botão esteja visível para etiquetas não baixadas
+                        transferBtn.style.display = 'flex';
+                    }
+                } else {
+                    console.error("Dados do material ausentes ou inválidos.");
+                    hideMaterialData();
+                    showFeedback("Dados do material inválidos ou incompletos", "error");
+                }
+            }
+
+            // Nova função para centralizar a lógica de ocultar o botão.
+            function checkAndDisableButton(message) {
+                const isAlreadyDownloaded = message && message.toLowerCase().includes('baixad');
+
+                if (isAlreadyDownloaded) {
+                    // Oculta apenas o botão de transferência se a etiqueta já foi baixada
+                    transferBtn.style.display = 'none';
+                    showFeedback("Atenção: A etiqueta já foi baixada. A transferência não pode ser confirmada novamente.", "warning");
+                } else {
+                    // Exibe o botão de transferência
+                    transferBtn.style.display = 'flex';
+                }
+            }
+
+            // Oculta a seção de dados do material com animação
+            function hideMaterialData() {
+                if (!materialDataSection.classList.contains('hidden')) {
+                    materialDataSection.style.transition = 'opacity 0.3s ease-in-out';
+                    materialDataSection.style.opacity = '0';
+                    setTimeout(() => {
+                        materialDataSection.classList.add('hidden');
+                    }, 300);
+                }
+            }
+
+            // Evento para o botão de Transferência
+            transferBtn.addEventListener('click', async () => {
+                // Verificações de segurança
+                if (transferBtn.disabled) {
+                    return;
+                }
+                
+                if (!lastScanResult) {
+                    showFeedback('Por favor, leia um QR Code para confirmar a transferência.', 'warning');
+                    return;
+                }
+                
+                // Feedback visual e tátil para o usuário
+                showFeedback('Confirmando transferência...', 'info');
+                transferBtn.classList.add('opacity-70');
+                
+                // Feedback tátil para dispositivos móveis
+                if (navigator.vibrate) {
+                    navigator.vibrate(100);
+                }
+                
+                try {
+                    const response = await fetch('/api/transferencia_material', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ codigo: lastScanResult })
+                    });
+                    const result = await response.json();
+                    
+                    // Restaura o botão
+                    transferBtn.classList.remove('opacity-70');
+                    
+                    // Lógica para desabilitar o botão se a transferência falhar com a mensagem de "baixada"
+                    if (response.ok) {
+                        // Feedback de sucesso
+                        showFeedback(result.mensagem, 'success');
+                        
+                        // Animação de sucesso
+                        const successIcon = document.createElement('div');
+                        successIcon.innerHTML = '<span class="material-icons text-green-500 text-5xl animate-bounce">check_circle</span>';
+                        successIcon.className = 'fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50';
+                        document.body.appendChild(successIcon);
+                        
+                        // Feedback tátil de sucesso
+                        if (navigator.vibrate) {
+                            navigator.vibrate([100, 50, 200]);
+                        }
+                        
+                        // Remove a animação e reinicia o scanner após um tempo
+                        setTimeout(() => {
+                            document.body.removeChild(successIcon);
+                            restartScanner();
+                        }, 1500);
+                    } else {
+                        // Se a resposta não for OK, verificamos se a mensagem de erro indica que o item já foi baixado.
+                    const errorMessage = result.erro || result.mensagem || "Falha na transferência.";
+                    if (errorMessage.toLowerCase().includes('baixad')) {
+                        // Se a mensagem contiver 'baixad', ocultamos o botão e atualizamos a mensagem de status.
+                        transferBtn.style.display = 'none';
+                        showFeedback("Atenção: A etiqueta já foi baixada. A transferência não pode ser confirmada novamente.", "warning");
+                    } else {
+                        // Caso contrário, é um erro geral.
+                        showFeedback("Erro: " + errorMessage, 'error');
+                    }
+                    }
+                } catch (error) {
+                    console.error("Erro na comunicação com o servidor:", error);
+                    showFeedback("Erro de conexão com o servidor.", 'error');
+                    transferBtn.classList.remove('opacity-70');
+                }
+            });
+
+            // Evento para o botão de reiniciar o scanner
+            restartScanBtn.addEventListener('click', () => {
+                // Feedback tátil para dispositivos móveis
+                if (navigator.vibrate) {
+                    navigator.vibrate(50);
+                }
+                restartScanner();
+            });
+
+            // Adiciona detecção de orientação e redimensionamento para melhorar a experiência em celulares
+            window.addEventListener('orientationchange', () => {
+                // Pequeno atraso para permitir que a orientação seja atualizada
+                setTimeout(() => {
+                    // Se o scanner estiver ativo, reinicia-o para ajustar ao novo tamanho
+                    if (html5QrCode && html5QrCode.getState() === Html5QrcodeScannerState.SCANNING) {
+                        restartScanner();
+                    }
+                }, 300);
+            });
+            
+            // Adiciona detecção de redimensionamento da janela
+            window.addEventListener('resize', () => {
+                // Usa debounce para evitar múltiplas chamadas durante o redimensionamento
+                clearTimeout(window.resizeTimer);
+                window.resizeTimer = setTimeout(() => {
+                    // Ajusta o layout apenas se o scanner estiver ativo
+                    if (html5QrCode && html5QrCode.getState() === Html5QrcodeScannerState.SCANNING) {
+                        // Atualiza o tamanho do QR reader sem reiniciar o scanner
+                        const qrReader = document.getElementById('qr-reader');
+                        if (qrReader) {
+                            const screenWidth = window.innerWidth;
+                            const containerWidth = Math.min(screenWidth - 30, 250);
+                            qrReader.style.maxWidth = containerWidth + 'px';
+                        }
+                    }
+                }, 250);
+            });
+
+            // Inicia o scanner na carga da página
+            startScanner();
+        });
+    </script>
+</body>
+</html>
