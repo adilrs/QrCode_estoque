@@ -73,7 +73,7 @@ def verificar_stored_procedure(con, nome_procedure):
 
 # --- Configuração do banco de dados Firebird ---
 # Usa variáveis de ambiente com valores padrão para desenvolvimento
-DB_PATH = os.getenv('DB_PATH', 'e:/gdb/retesp.fdb')
+DB_PATH = os.getenv('DB_PATH', 'retesp')
 DB_HOST = os.getenv('DB_HOST', '192.168.0.8')
 DB_USER = os.getenv('DB_USER', 'SYSDBA')
 DB_PASSWORD = os.getenv('DB_PASSWORD', 'a')

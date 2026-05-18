@@ -21,7 +21,7 @@ from flask import session
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity  
 
 # Carregar configurações específicas de produção
-load_dotenv('.env')
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'), override=True)
 
 # Configuração de logging para produção
 logging.basicConfig(
@@ -52,10 +52,10 @@ CORS(app, origins="*", supports_credentials=True, expose_headers=["Authorization
 # Configurações do banco de dados
 DB_CONFIG = {
     'host': os.getenv('DB_HOST', '192.168.0.8'),
-    'database': os.getenv('DB_PATH', 'e:/gdb/retesp.fdb'),
+    'database': os.getenv('DB_ALIAS', os.getenv('DB_PATH', r'x:\gdb\retesp.fdb')),
     'user': os.getenv('DB_USER', 'SYSDBA'),
     'password': os.getenv('DB_PASSWORD', 'a'),
-    'charset': 'UTF8'
+    'charset': os.getenv('DB_ENCODING', 'UTF8')
 }
 
 # Configurações globais
@@ -105,7 +105,8 @@ def get_database_connection():
             logger.error("O caminho do banco de dados não foi configurado.")
             raise ValueError("Caminho do banco de dados não encontrado na configuração")
 
-        logger.debug(f"Tentando conectar ao banco de dados: {db_path}")
+        logger.info(f"Conexão Firebird alvo - host: {DB_CONFIG.get('host')}, database: {db_path}")
+        logger.info(f"DSN: {dsn}")
         
         con = fdb.connect(
             dsn=dsn,
@@ -930,4 +931,3 @@ if __name__ == '__main__':
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
         app.run(host=host, port=port, debug=debug, ssl_context='adhoc')
-
